@@ -1,0 +1,85 @@
+Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+	F.Intrinsic.Control.Try
+	V.Local.sError.Declare
+
+	V.Local.iCnt.Declare
+	V.Local.sLinkID.Declare
+	V.Local.sFileType.Declare
+	V.Local.sRet.Declare
+	V.Local.iGrpID.Declare
+	V.Local.iRet.Declare
+	V.Local.bRet.Declare
+	V.Local.sMsg.Declare
+	V.Local.sFile.Declare
+	V.Local.sFileCopy.Declare
+	
+	F.ODBC.Connection!con.OpenCompanyConnection(500)
+	
+	F.Intrinsic.UI.MiniBrowser("Select a Document Group:","con","Select * From ATG_DOC_GRP;","ID*!*Name*!*Description","50*!*100*!*150",V.Local.sRet)
+	F.Intrinsic.Control.If(V.Local.sRet,=,"***CANCEL***")
+		F.Intrinsic.UI.Msgbox("Process Cancelled","Link4 to DCC Conversion")
+		F.Intrinsic.Control.End
+	F.Intrinsic.Control.Else
+		F.Intrinsic.String.Split(V.Local.sRet,"*!*",V.Local.sRet)
+		V.Local.iGrpID.Set(V.Local.sRet(0).Long)
+	F.Intrinsic.Control.EndIf
+	
+'	F.ODBC.Connection!con.Execute("Delete ATG_DOC_ASSOC;")
+	
+	F.Intrinsic.String.Build("{0}\LNKDT{1}",V.Caller.FilesDir,V.Caller.CompanyCode,V.Local.sFile)
+	F.Intrinsic.String.Build("{0}\LNKDT{1}_{2}{3}_4929",V.Caller.FilesDir,V.Caller.CompanyCode,V.Ambient.Date.FormatMMDDYYYY,V.Ambient.Time.FormatHHNNSS,V.Local.sFileCopy)
+	F.Intrinsic.File.CopyOpenFile(V.Local.sFile,V.Local.sFileCopy)
+	
+	F.Data.DataTable.CreateFromSQL("dtLinkData","con","Select * From Link_Data;",True)
+	F.Data.DataTable.CreateFromSQL("dtDocAssoc","con","Select * From ATG_DOC_ASSOC;",True)
+	F.Data.DataTable.DeleteRow("dtDocAssoc",-1)
+	F.Data.DataTable.AcceptChanges("dtDocAssoc")
+	
+	F.Intrinsic.UI.InvokeWaitDialog("Converting Links to Document Control","Link Conversion")
+	F.Intrinsic.Control.For(V.Local.iCnt,0,V.DataTable.dtLinkData.RowCount--)
+		F.Intrinsic.UI.ChangeWaitStatus("Converting Links to Document Control",V.Local.iCnt,0,V.DataTable.dtLinkData.RowCount)
+		F.Intrinsic.String.TrimCharL(V.DataTable.dtLinkData(V.Local.iCnt).Link_ID!FieldVal,"0",V.Local.sLinkID)
+		F.Intrinsic.String.Right(V.DataTable.dtLinkData(V.Local.iCnt).File_Name!FieldValTrim,3,V.Local.sFileType)
+		F.Data.DataTable.AddRow("dtDocAssoc","FILE_NUM",0,"LINK_ID",V.Local.sLinkID.Long,"FILE_TYPE",V.Local.sFileType.UCase,"PATH",V.DataTable.dtLinkData(V.Local.iCnt).Path!FieldValTrim,"FILE",V.DataTable.dtLinkData(V.Local.iCnt).File_Name!FieldVal,"DESCRIPTION","Link4 to DCC","DATE_ADDED",V.Ambient.Now,"GS_USER",V.Caller.User,"GRP_ID",V.Local.iGrpID,"INV_NON_REV",False)
+	F.Intrinsic.Control.Next(V.Local.iCnt)
+	
+	F.Intrinsic.UI.ChangeWaitStatus("Saving Data to ATG_DOC_ASSOC",V.Local.iCnt,0,V.DataTable.dtLinkData.RowCount)
+	F.Data.DataTable.SaveToDB("dtDocAssoc","con","ATG_DOC_ASSOC","FILE_NUM")
+	
+	F.ODBC.Connection!con.Execute("Update LINK_DATA Set Path = '', File_Name = '';")
+	
+	F.ODBC.Connection!con.Close
+	
+	F.Intrinsic.UI.ChangeWaitStatus("Turning on Document Control Hooks",V.Local.iCnt,0,V.DataTable.dtLinkData.RowCount)
+	F.Global.General.IsHookActive("16120",V.Local.bRet)
+	F.Intrinsic.Control.If(V.Local.bRet,=,False)
+		F.Global.Hook.AddHookSequenceAssociation("16120",False,V.Caller.GasDir,"ATG_DocumentControl.gas",False,"",2,"","",V.Local.iRet)
+	F.Intrinsic.Control.EndIf
+	
+	F.Global.General.IsHookActive("16121",V.Local.bRet)
+	F.Intrinsic.Control.If(V.Local.bRet,=,False)
+		F.Global.Hook.AddHookSequenceAssociation("16121",False,V.Caller.GasDir,"PPT_CreateDocReference.g2u",False,"",2,"","",V.Local.iRet)
+	F.Intrinsic.Control.EndIf
+	
+	F.Intrinsic.UI.ChangeWaitStatus("Complete",V.DataTable.dtLinkData.RowCount,0,V.DataTable.dtLinkData.RowCount)
+	F.Intrinsic.UI.CloseWaitDialog
+	F.Intrinsic.String.Build("Conversion Complete. Verify Hooks 16120 and 16121 are Active.{0}Hook 16120 - ATG_DocumentControl.gas{0}16121 - PPT_CreateDocReference.g2u",V.Ambient.NewLine,V.Local.sMsg)
+	F.Intrinsic.UI.Msgbox(V.Local.sMsg,"Link4 to DCC Conversion")
+
+	F.Intrinsic.Control.Catch
+		F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+		F.Intrinsic.UI.Msgbox(V.Local.sError)
+		F.Intrinsic.Control.End 
+	F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.Comments.Start
+	Setup Documnt Control Groups (System Support > File > Document Group Setup)
+	Remove All Records from ATG_DOC_ASSOC - this should be empty
+	Convert data from LINK_DATA into ATG_DOC_ASSOC
+	Activate Hook 16120 - ATG_DocumentControl.gas (System Support > Administration > GAB Script Hook Maintenance)
+	Activate Hook 16121 - PPT_CreateDocReference.g2u (System Support > Administration > GAB Script Hook Maintenance)
+Program.Sub.Comments.End
